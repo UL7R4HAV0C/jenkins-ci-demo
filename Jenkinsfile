@@ -1,55 +1,56 @@
 pipeline {
-  agent any
-  environment {
-    IMAGE = "ul7r4hav0c/jenkins-ci-demo"
-    TAG = "${env.BUILD_NUMBER}"
-    DOCKER_CRED = 'dockerhub-creds'
-    KUBE_CRED = 'kubeconfig-file'
-  }
+    agent any
 
-  stages {
-    stage('Checkout') {
-      steps {
-        checkout scm
-      }
+    environment {
+        DOCKERHUB_CREDENTIALS = 'dockerhub_token'   // Jenkins credentials ID
+        DOCKERHUB_USERNAME = 'your_dockerhub_username' // 🔹 Change this
+        IMAGE_NAME = 'jenkins-ci-demo'
     }
 
-    stage('Build Docker Image') {
-      steps {
-        sh "docker build -t ${IMAGE}:${TAG} ."
-      }
-    }
-
-    stage('Push to Docker Hub') {
-      steps {
-        withCredentials([usernamePassword(credentialsId: DOCKER_CRED, usernameVariable: 'USER', passwordVariable: 'PASS')]) {
-          sh "echo $PASS | docker login -u $USER --password-stdin"
-          sh "docker push ${IMAGE}:${TAG}"
+    stages {
+        stage('Checkout') {
+            steps {
+                echo '📦 Checking out source code...'
+                checkout scm
+            }
         }
-      }
-    }
 
-    stage('Deploy to Kubernetes') {
-      steps {
-        withCredentials([file(credentialsId: KUBE_CRED, variable: 'KUBECONFIG_FILE')]) {
-          sh 'mkdir -p $HOME/.kube'
-          sh 'cp $KUBECONFIG_FILE $HOME/.kube/config'
-          // update image tag dynamically in YAML
-          sh "sed -i 's|ul7r4hav0c/jenkins-ci-demo:latest|${IMAGE}:${TAG}|g' deployment.yaml"
-          sh "kubectl apply -f deployment.yaml"
-          sh "kubectl apply -f service.yaml"
-          sh "kubectl rollout status deployment/jenkins-ci-demo --timeout=90s"
+        stage('Build Docker Image') {
+            steps {
+                echo '🐳 Building Docker image...'
+                bat "docker build -t %DOCKERHUB_USERNAME%/%IMAGE_NAME% ."
+            }
         }
-      }
-    }
-  }
 
-  post {
-    success {
-      echo "✅ Successfully deployed ${IMAGE}:${TAG} to Kubernetes!"
+        stage('Push to Docker Hub') {
+            steps {
+                echo '🚀 Pushing Docker image to Docker Hub...'
+                withCredentials([string(credentialsId: "${DOCKERHUB_CREDENTIALS}", variable: 'DOCKER_TOKEN')]) {
+                    bat """
+                    docker login -u %DOCKERHUB_USERNAME% -p %DOCKER_TOKEN%
+                    docker push %DOCKERHUB_USERNAME%/%IMAGE_NAME%
+                    """
+                }
+            }
+        }
+
+        stage('Deploy to Kubernetes') {
+            steps {
+                echo '⚙️ Deploying to Kubernetes...'
+                bat "kubectl apply -f deployment.yaml"
+                bat "kubectl apply -f service.yaml"
+                bat "kubectl get pods"
+                bat "kubectl get svc"
+            }
+        }
     }
-    failure {
-      echo "❌ Pipeline failed! Check logs."
+
+    post {
+        success {
+            echo '✅ Deployment Successful!'
+        }
+        failure {
+            echo '❌ Pipeline failed! Check logs.'
+        }
     }
-  }
 }
