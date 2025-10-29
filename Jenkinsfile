@@ -2,12 +2,14 @@ pipeline {
     agent any
 
     environment {
-        DOCKERHUB_CREDENTIALS = 'dockerhub_token'   // Jenkins credentials ID
-        DOCKERHUB_USERNAME = 'your_dockerhub_username' // 🔹 Change this
-        IMAGE_NAME = 'jenkins-ci-demo'
+        DOCKERHUB_CREDENTIALS = 'dockerhub'      // ✅ Correct credentials ID
+        DOCKERHUB_USERNAME = 'ul7r4hav0c'        // ✅ Your DockerHub username
+        IMAGE_NAME = 'jenkins-ci-demo'           // Docker image name
+        TAG = 'latest'                           // Optional: you can change this to a version tag
     }
 
     stages {
+
         stage('Checkout') {
             steps {
                 echo '📦 Checking out source code...'
@@ -18,17 +20,20 @@ pipeline {
         stage('Build Docker Image') {
             steps {
                 echo '🐳 Building Docker image...'
-                bat "docker build -t %DOCKERHUB_USERNAME%/%IMAGE_NAME% ."
+                bat """
+                docker build -t %DOCKERHUB_USERNAME%/%IMAGE_NAME%:%TAG% .
+                """
             }
         }
 
         stage('Push to Docker Hub') {
             steps {
                 echo '🚀 Pushing Docker image to Docker Hub...'
-                withCredentials([string(credentialsId: "${DOCKERHUB_CREDENTIALS}", variable: 'DOCKER_TOKEN')]) {
+                withCredentials([usernamePassword(credentialsId: "${DOCKERHUB_CREDENTIALS}", usernameVariable: 'DOCKER_USER', passwordVariable: 'DOCKER_PASS')]) {
                     bat """
-                    docker login -u %DOCKERHUB_USERNAME% -p %DOCKER_TOKEN%
-                    docker push %DOCKERHUB_USERNAME%/%IMAGE_NAME%
+                    docker login -u %DOCKER_USER% -p %DOCKER_PASS%
+                    docker push %DOCKERHUB_USERNAME%/%IMAGE_NAME%:%TAG%
+                    docker logout
                     """
                 }
             }
@@ -37,10 +42,12 @@ pipeline {
         stage('Deploy to Kubernetes') {
             steps {
                 echo '⚙️ Deploying to Kubernetes...'
-                bat "kubectl apply -f deployment.yaml"
-                bat "kubectl apply -f service.yaml"
-                bat "kubectl get pods"
-                bat "kubectl get svc"
+                bat """
+                kubectl apply -f deployment.yaml
+                kubectl apply -f service.yaml
+                kubectl get pods
+                kubectl get svc
+                """
             }
         }
     }
