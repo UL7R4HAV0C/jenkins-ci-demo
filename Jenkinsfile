@@ -2,10 +2,11 @@ pipeline {
     agent any
 
     environment {
-        DOCKERHUB_CREDENTIALS = 'dockerhub'      // ✅ Correct credentials ID
-        DOCKERHUB_USERNAME = 'ul7r4hav0c'        // ✅ Your DockerHub username
-        IMAGE_NAME = 'jenkins-ci-demo'           // Docker image name
-        TAG = 'latest'                           // Optional: you can change this to a version tag
+        // 🌐 Credentials and image info
+        DOCKERHUB_CREDENTIALS = 'dockerhub'       // Jenkins DockerHub credentials ID
+        DOCKERHUB_USERNAME = 'ul7r4hav0c'         // Your DockerHub username
+        IMAGE_NAME = 'jenkins-ci-demo'            // Docker image name
+        TAG = 'latest'                            // Optional tag
     }
 
     stages {
@@ -13,7 +14,14 @@ pipeline {
         stage('Checkout') {
             steps {
                 echo '📦 Checking out source code...'
-                checkout scm
+                checkout([
+                    $class: 'GitSCM',
+                    branches: [[name: '*/main']],              // branch to build
+                    userRemoteConfigs: [[
+                        url: 'https://github.com/ul7r4hav0c/jenkins-ci-demo.git', // 🔹 your repo
+                        credentialsId: 'github'               // GitHub credentials ID
+                    ]]
+                ])
             }
         }
 
@@ -42,12 +50,16 @@ pipeline {
         stage('Deploy to Kubernetes') {
             steps {
                 echo '⚙️ Deploying to Kubernetes...'
-                bat """
-                kubectl apply -f deployment.yaml
-                kubectl apply -f service.yaml
-                kubectl get pods
-                kubectl get svc
-                """
+
+                // ✅ Use the kubeconfig file stored in Jenkins credentials
+                withCredentials([file(credentialsId: 'minikube-config', variable: 'KUBECONFIG')]) {
+                    bat """
+                    kubectl apply -f deployment.yaml
+                    kubectl apply -f service.yaml
+                    kubectl get pods
+                    kubectl get svc
+                    """
+                }
             }
         }
     }
