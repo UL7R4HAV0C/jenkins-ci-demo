@@ -1,58 +1,55 @@
 pipeline {
-    agent any
+  agent any
+  environment {
+    IMAGE = "ul7r4hav0c/jenkins-ci-demo"
+    TAG = "${env.BUILD_NUMBER}"
+    DOCKER_CRED = 'dockerhub-creds'
+    KUBE_CRED = 'kubeconfig-file'
+  }
 
-    environment {
-        DOCKER_HUB_REPO = 'ul7r4hav0c/jenkins-ci-demo'
+  stages {
+    stage('Checkout') {
+      steps {
+        checkout scm
+      }
     }
 
-    stages {
-        stage('Clone Repository') {
-            steps {
-                git branch: 'main',
-                    credentialsId: 'github',
-                    url: 'https://github.com/ul7r4hav0c/jenkins-ci-demo.git'
-            }
-        }
-
-        stage('Build Docker Image') {
-            steps {
-                script {
-                    dockerImage = docker.build("${DOCKER_HUB_REPO}:latest")
-                }
-            }
-        }
-
-        stage('Push Docker Image') {
-            steps {
-                script {
-                    docker.withRegistry('https://index.docker.io/v1/', 'dockerhub') {
-                        dockerImage.push()
-                    }
-                }
-            }
-        }
-
-        stage('Deploy to Kubernetes') {
-            steps {
-                script {
-                    kubectlApply = bat(returnStatus: true, script: '''
-                        kubectl apply -f deployment.yaml
-                        kubectl apply -f service.yaml
-                    ''')
-                    if (kubectlApply != 0) {
-                        error("Kubernetes deployment failed!")
-                    }
-                }
-            }
-        }
+    stage('Build Docker Image') {
+      steps {
+        sh "docker build -t ${IMAGE}:${TAG} ."
+      }
     }
 
-    post {
-        success {
-            echo '✅ Deployment successful!'
+    stage('Push to Docker Hub') {
+      steps {
+        withCredentials([usernamePassword(credentialsId: DOCKER_CRED, usernameVariable: 'USER', passwordVariable: 'PASS')]) {
+          sh "echo $PASS | docker login -u $USER --password-stdin"
+          sh "docker push ${IMAGE}:${TAG}"
         }
-        failure {
-            echo '❌ Deployment failed. Check logs!'
-        }
+      }
     }
+
+    stage('Deploy to Kubernetes') {
+      steps {
+        withCredentials([file(credentialsId: KUBE_CRED, variable: 'KUBECONFIG_FILE')]) {
+          sh 'mkdir -p $HOME/.kube'
+          sh 'cp $KUBECONFIG_FILE $HOME/.kube/config'
+          // update image tag dynamically in YAML
+          sh "sed -i 's|ul7r4hav0c/jenkins-ci-demo:latest|${IMAGE}:${TAG}|g' deployment.yaml"
+          sh "kubectl apply -f deployment.yaml"
+          sh "kubectl apply -f service.yaml"
+          sh "kubectl rollout status deployment/jenkins-ci-demo --timeout=90s"
+        }
+      }
+    }
+  }
+
+  post {
+    success {
+      echo "✅ Successfully deployed ${IMAGE}:${TAG} to Kubernetes!"
+    }
+    failure {
+      echo "❌ Pipeline failed! Check logs."
+    }
+  }
 }
