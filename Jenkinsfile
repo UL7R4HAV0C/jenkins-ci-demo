@@ -2,38 +2,57 @@ pipeline {
     agent any
 
     environment {
-        DOCKERHUB_CREDENTIALS = credentials('dockerhub')
-        IMAGE_NAME = "ul7r4hav0c/jenkins-demo"
+        DOCKER_HUB_REPO = 'ul7r4hav0c/jenkins-ci-demo'
     }
 
     stages {
         stage('Clone Repository') {
             steps {
-                git 'git 'https://github.com/ul7r4hav0c/jenkins-ci-demo.git'
-'
+                git branch: 'main',
+                    credentialsId: 'github',
+                    url: 'https://github.com/ul7r4hav0c/jenkins-ci-demo.git'
             }
         }
 
         stage('Build Docker Image') {
             steps {
-                sh 'docker build -t $IMAGE_NAME .'
+                script {
+                    dockerImage = docker.build("${DOCKER_HUB_REPO}:latest")
+                }
             }
         }
 
         stage('Push Docker Image') {
             steps {
-                withCredentials([usernamePassword(credentialsId: 'dockerhub', usernameVariable: 'USERNAME', passwordVariable: 'PASSWORD')]) {
-                    sh 'echo $PASSWORD | docker login -u $USERNAME --password-stdin'
-                    sh 'docker push $IMAGE_NAME'
+                script {
+                    docker.withRegistry('https://index.docker.io/v1/', 'dockerhub') {
+                        dockerImage.push()
+                    }
                 }
             }
         }
 
         stage('Deploy to Kubernetes') {
             steps {
-                sh 'kubectl apply -f deployment.yaml'
-                sh 'kubectl apply -f service.yaml'
+                script {
+                    kubectlApply = bat(returnStatus: true, script: '''
+                        kubectl apply -f deployment.yaml
+                        kubectl apply -f service.yaml
+                    ''')
+                    if (kubectlApply != 0) {
+                        error("Kubernetes deployment failed!")
+                    }
+                }
             }
+        }
+    }
+
+    post {
+        success {
+            echo '✅ Deployment successful!'
+        }
+        failure {
+            echo '❌ Deployment failed. Check logs!'
         }
     }
 }
